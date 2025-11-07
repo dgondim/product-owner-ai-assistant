@@ -1,0 +1,5 @@
+{
+  "name": "PO AI Assistant",
+  "description": "An AI assistant for Product Owners that generates UI wireframes and Jira-style user stories from natural language requirements.",
+  "requestFramePermissions": []
+}
