@@ -18,6 +18,16 @@ export interface Epic {
   stories: JiraStory[];
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  userInput: string;
+  uiCode: string;
+  jiraStories: Epic[];
+  createdAt: string; // ISO string
+}
+
+
 export enum OutputTab {
   UI_PROTOTYPE = 'UI_PROTOTYPE',
   JIRA_STORIES = 'JIRA_STORIES',
