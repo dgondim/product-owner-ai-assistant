@@ -24,6 +24,7 @@ export interface Project {
   userInput: string;
   uiCode: string;
   jiraStories: Epic[];
+  userFlow: string;
   createdAt: string; // ISO string
 }
 
@@ -32,4 +33,5 @@ export enum OutputTab {
   UI_PROTOTYPE = 'UI_PROTOTYPE',
   JIRA_STORIES = 'JIRA_STORIES',
   STORY_BOARD = 'STORY_BOARD',
+  USER_FLOW = 'USER_FLOW',
 }

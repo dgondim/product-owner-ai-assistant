@@ -3,8 +3,9 @@ import InputPanel from './components/InputPanel';
 import OutputPanel from './components/OutputPanel';
 import ProjectsModal from './components/ProjectsModal';
 import SaveProjectModal from './components/SaveProjectModal';
+import AutoSavePromptModal from './components/AutoSavePromptModal';
 import Toast from './components/Toast';
-import { generateUIPrototype, generateJiraStories, refineUIPrototype, generateUIVariant } from './services/geminiService';
+import { generateUIPrototype, generateJiraStories, refineUIPrototype, generateUIVariant, generateUserFlow } from './services/geminiService';
 import { Epic, OutputTab, Project } from './types';
 import SaveIcon from './components/icons/SaveIcon';
 
@@ -12,6 +13,7 @@ const App: React.FC = () => {
   const [userInput, setUserInput] = useState<string>("Create a user profile page where users can update their name, email, and profile picture. Include a section to show their recent activity and a button to delete their account.");
   const [uiCode, setUiCode] = useState<string | null>(null);
   const [jiraStories, setJiraStories] = useState<Epic[] | null>(null);
+  const [userFlow, setUserFlow] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<OutputTab>(OutputTab.UI_PROTOTYPE);
@@ -20,6 +22,7 @@ const App: React.FC = () => {
   
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState<boolean>(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState<boolean>(false);
+  const [isAutoSavePromptOpen, setIsAutoSavePromptOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
 
 
@@ -46,6 +49,7 @@ const App: React.FC = () => {
     setError(null);
     setUiCode(null);
     setJiraStories(null);
+    setUserFlow(null);
     setActiveTab(OutputTab.UI_PROTOTYPE);
     setActiveProjectId(null); // New generation is a new, unsaved project
 
@@ -57,12 +61,14 @@ const App: React.FC = () => {
           }
       } : undefined;
 
-      const [uiResult, jiraResult] = await Promise.all([
+      const [uiResult, jiraResult, flowResult] = await Promise.all([
         generateUIPrototype(userInput, imagePart),
-        generateJiraStories(userInput, imagePart)
+        generateJiraStories(userInput, imagePart),
+        generateUserFlow(userInput, imagePart)
       ]);
 
       setUiCode(uiResult);
+      setUserFlow(flowResult);
 
       try {
         const parsedJiraStories = JSON.parse(jiraResult);
@@ -70,7 +76,7 @@ const App: React.FC = () => {
       } catch (parseError) {
         console.error("Failed to parse Jira stories JSON:", parseError);
         console.error("Received string:", jiraResult);
-        setError("Failed to parse Jira stories from the AI. Please try again.");
+        // Still show other results even if this one fails
       }
 
     } catch (e) {
@@ -131,6 +137,7 @@ const App: React.FC = () => {
   const isContentUnchanged = activeProject
     ? activeProject.uiCode === uiCode &&
       JSON.stringify(activeProject.jiraStories) === JSON.stringify(jiraStories) &&
+      activeProject.userFlow === userFlow &&
       activeProject.userInput === userInput
     : false;
 
@@ -140,7 +147,7 @@ const App: React.FC = () => {
       setProjects(prevProjects =>
         prevProjects.map(p =>
           p.id === activeProjectId
-            ? { ...p, uiCode: uiCode!, jiraStories: jiraStories!, userInput, createdAt: new Date().toISOString() }
+            ? { ...p, uiCode: uiCode!, jiraStories: jiraStories!, userFlow: userFlow!, userInput, createdAt: new Date().toISOString() }
             : p
         )
       );
@@ -149,16 +156,17 @@ const App: React.FC = () => {
       // Open modal to save new project
       setIsSaveModalOpen(true);
     }
-  }, [activeProjectId, userInput, uiCode, jiraStories]);
+  }, [activeProjectId, userInput, uiCode, jiraStories, userFlow]);
 
   const handleSaveNewProject = (name: string) => {
-    if (name && uiCode && jiraStories) {
+    if (name && uiCode && jiraStories && userFlow) {
       const newProject: Project = {
         id: `proj_${Date.now()}`,
         name,
         userInput,
         uiCode,
         jiraStories,
+        userFlow,
         createdAt: new Date().toISOString(),
       };
       setProjects(prevProjects => [newProject, ...prevProjects]);
@@ -168,6 +176,20 @@ const App: React.FC = () => {
     }
   };
 
+  const handleConfirmAutoSave = () => {
+    if (activeProjectId) {
+      setProjects(prevProjects =>
+        prevProjects.map(p =>
+          p.id === activeProjectId
+            ? { ...p, uiCode: uiCode!, jiraStories: jiraStories!, userFlow: userFlow!, userInput, createdAt: new Date().toISOString() }
+            : p
+        )
+      );
+      setToastMessage('Project auto-saved!');
+    }
+    setIsAutoSavePromptOpen(false);
+  };
+
 
   const handleLoadProject = useCallback((projectId: string) => {
     const project = projects.find(p => p.id === projectId);
@@ -175,6 +197,7 @@ const App: React.FC = () => {
       setUserInput(project.userInput);
       setUiCode(project.uiCode);
       setJiraStories(project.jiraStories);
+      setUserFlow(project.userFlow);
       setUploadedImage(null);
       setError(null);
       setActiveProjectId(project.id);
@@ -190,6 +213,7 @@ const App: React.FC = () => {
       setUserInput('');
       setUiCode(null);
       setJiraStories(null);
+      setUserFlow(null);
     }
   }, [activeProjectId]);
   
@@ -198,7 +222,21 @@ const App: React.FC = () => {
     : 'New Project';
 
   const saveButtonText = activeProject ? (isContentUnchanged ? 'Saved' : 'Update Project') : 'Save Project';
-  const isSaveDisabled = (activeProject && isContentUnchanged) || !uiCode || !jiraStories || isLoading || isRefining;
+  const isSaveDisabled = (activeProject && isContentUnchanged) || !uiCode || !jiraStories || !userFlow || isLoading || isRefining;
+
+  // Auto-save logic
+  const isDirty = !isContentUnchanged;
+  useEffect(() => {
+    // Conditions for auto-save: active project exists, content is dirty, not loading, and prompt is not already open.
+    if (activeProjectId && isDirty && !isLoading && !isRefining && !isAutoSavePromptOpen) {
+      const timer = setTimeout(() => {
+        setIsAutoSavePromptOpen(true);
+      }, 120000); // Prompt after 2 minutes of inactivity with unsaved changes.
+
+      // Cleanup function to reset the timer if dependencies change (e.g., user saves, refines again, etc.)
+      return () => clearTimeout(timer);
+    }
+  }, [activeProjectId, isDirty, isLoading, isRefining, isAutoSavePromptOpen, uiCode, jiraStories, userFlow]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-6 lg:p-8">
@@ -216,7 +254,7 @@ const App: React.FC = () => {
               disabled={isSaveDisabled}
               className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md transition-colors text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               title={
-                 !uiCode || !jiraStories ? "Cannot save until both UI and Jira Stories are generated." :
+                 !uiCode || !jiraStories ? "Cannot save until all assets are generated." :
                  isContentUnchanged ? "Project is saved with the current content." :
                  activeProject ? "Save changes to the current project." :
                  "Save the generated UI and stories as a new project."
@@ -249,6 +287,7 @@ const App: React.FC = () => {
             <OutputPanel
               uiCode={uiCode}
               jiraStories={jiraStories}
+              userFlow={userFlow}
               isLoading={isLoading}
               error={error}
               activeTab={activeTab}
@@ -272,6 +311,12 @@ const App: React.FC = () => {
         onClose={() => setIsSaveModalOpen(false)}
         onSave={handleSaveNewProject}
         defaultName={defaultProjectName}
+      />
+      <AutoSavePromptModal
+        isOpen={isAutoSavePromptOpen}
+        onClose={() => setIsAutoSavePromptOpen(false)}
+        onConfirm={handleConfirmAutoSave}
+        projectName={activeProject?.name || ''}
       />
       <Toast
         message={toastMessage}

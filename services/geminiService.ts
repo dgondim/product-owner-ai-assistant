@@ -155,6 +155,69 @@ export const generateJiraStories = async (requirements: string, image?: ImagePar
   }
 };
 
+export const generateUserFlow = async (requirements: string, image?: ImagePart): Promise<string> => {
+    let prompt = `
+      You are an expert system designer and product owner.
+      Based on the following user requirements${image ? ' and the provided wireframe image' : ''}, create a user flow diagram using Mermaid.js syntax.
+      
+      Instructions:
+      1.  The output must be **only** the Mermaid.js code block. Do not include any explanations or markdown formatting like \`\`\`mermaid.
+      2.  Use the 'graph TD' (Top-to-Down) or 'graph LR' (Left-to-Right) layout.
+      3.  The diagram should clearly show the user's journey, including actions, decisions, and outcomes.
+      4.  Keep the diagram clear and concise. Use short, descriptive labels for each step.
+      5.  Use different node shapes for different types of steps (e.g., rectangles for actions, diamonds for decisions).
+      
+      Example of expected output format:
+      graph TD
+          A[User lands on page] --> B{User has an account?};
+          B -- Yes --> C[Enters credentials];
+          B -- No --> D[Clicks 'Sign Up'];
+          C --> E[Logs in];
+          D --> F[Completes registration form];
+          F --> E;
+          E --> G[Accesses Dashboard];
+
+      User Requirements:
+      "${requirements}"
+    `;
+
+    if (!requirements && image) {
+        prompt = `
+        You are an expert system designer and product owner.
+        Based on the provided wireframe image, create a user flow diagram using Mermaid.js syntax that represents the likely user journey on this interface.
+        
+        Instructions:
+        1.  The output must be **only** the Mermaid.js code block. Do not include any explanations or markdown formatting like \`\`\`mermaid.
+        2.  Use the 'graph TD' (Top-to-Down) layout.
+        3.  The diagram should clearly show the user's journey, including actions, decisions, and outcomes.
+        4.  Keep the diagram clear and concise. Use short, descriptive labels for each step.
+        5.  Use different node shapes for different types of steps (e.g., rectangles for actions, diamonds for decisions).
+        `;
+    }
+
+    const parts: Part[] = [{ text: prompt }];
+    if (image) {
+        parts.push(image);
+    }
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts },
+        });
+        // A simple check to ensure it starts with 'graph'
+        if (response.text.trim().startsWith('graph')) {
+             return response.text.trim();
+        }
+        // Fallback or error if the format is unexpected
+        throw new Error("Generated content is not valid Mermaid.js graph syntax.");
+
+    } catch (error) {
+        console.error("Error generating user flow:", error);
+        throw new Error("Failed to generate user flow diagram.");
+    }
+};
+
 export const refineUIPrototype = async (currentHtml: string, instruction: string): Promise<string> => {
     const prompt = `
       You are a world-class senior frontend engineer specializing in Tailwind CSS.

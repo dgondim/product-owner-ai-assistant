@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Epic, OutputTab } from '../types';
 import CodeIcon from './icons/CodeIcon';
 import JiraIcon from './icons/JiraIcon';
 import BoardIcon from './icons/BoardIcon';
+import FlowIcon from './icons/FlowIcon';
 import Loader from './Loader';
 import ExpandIcon from './icons/ExpandIcon';
 import CloseIcon from './icons/CloseIcon';
@@ -12,10 +13,12 @@ import ClipboardIcon from './icons/ClipboardIcon';
 import CheckIcon from './icons/CheckIcon';
 import ShuffleIcon from './icons/ShuffleIcon';
 import SparklesIcon from './icons/SparklesIcon';
+import mermaid from 'mermaid';
 
 interface OutputPanelProps {
   uiCode: string | null;
   jiraStories: Epic[] | null;
+  userFlow: string | null;
   isLoading: boolean;
   error: string | null;
   activeTab: OutputTab;
@@ -198,6 +201,124 @@ const StoryBoardDisplay: React.FC<{ epics: Epic[] }> = ({ epics }) => (
   </div>
 );
 
+const UserFlowDisplay: React.FC<{ mermaidCode: string }> = ({ mermaidCode }) => {
+    const mermaidContainerRef = useRef<HTMLDivElement>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        const renderMermaid = async () => {
+            if (mermaidCode && mermaidContainerRef.current) {
+                try {
+                    mermaidContainerRef.current.innerHTML = ''; // Clear previous render
+                    const { svg } = await mermaid.render(`mermaid-svg-${Date.now()}`, mermaidCode);
+                    mermaidContainerRef.current.innerHTML = svg;
+                } catch (e) {
+                    console.error('Mermaid rendering error:', e);
+                    mermaidContainerRef.current.innerHTML = `<pre class="text-red-400">${e instanceof Error ? e.message : String(e)}</pre>`;
+                }
+            }
+        };
+        renderMermaid();
+    }, [mermaidCode]);
+
+    const handleCopyCode = () => {
+        navigator.clipboard.writeText(mermaidCode)
+            .then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+            })
+            .catch(err => console.error('Failed to copy code: ', err));
+    };
+
+    const handleExport = async (format: 'png' | 'svg') => {
+        if (!mermaidContainerRef.current) return;
+        const svgElement = mermaidContainerRef.current.querySelector('svg');
+        if (!svgElement) return;
+
+        setIsExporting(true);
+        try {
+            if (format === 'svg') {
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'user-flow.svg';
+                link.click();
+                URL.revokeObjectURL(url);
+            } else { // png
+                const canvas = await html2canvas(mermaidContainerRef.current, { 
+                    backgroundColor: null, // transparent background
+                    scale: 2 
+                });
+                const link = document.createElement('a');
+                link.href = canvas.toDataURL('image/png');
+                link.download = 'user-flow.png';
+                link.click();
+            }
+        } catch (error) {
+            console.error(`Failed to export as ${format}`, error);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+
+    return (
+        <div className="flex flex-col h-full bg-gray-900 rounded-b-lg">
+            <div className="flex-shrink-0 flex justify-end p-2 border-b border-gray-700">
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleCopyCode}
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md transition-all text-gray-200"
+                        aria-label="Copy Mermaid.js code"
+                    >
+                        {copied ? (
+                             <>
+                                <CheckIcon className="w-4 h-4 text-green-400" />
+                                <span>Copied!</span>
+                            </>
+                        ) : (
+                            <>
+                                <ClipboardIcon className="w-4 h-4" />
+                                <span>Copy Code</span>
+                            </>
+                        )}
+                    </button>
+                     <button 
+                        onClick={() => handleExport('png')}
+                        disabled={isExporting}
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md transition-colors text-gray-200 disabled:opacity-50 disabled:cursor-wait"
+                        aria-label="Export as PNG"
+                    >
+                        {isExporting ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-200"></div> : <DownloadIcon className="w-4 h-4" />}
+                        <span>PNG</span>
+                    </button>
+                    <button 
+                        onClick={() => handleExport('svg')}
+                        disabled={isExporting}
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md transition-colors text-gray-200 disabled:opacity-50 disabled:cursor-wait"
+                        aria-label="Export as SVG"
+                    >
+                        {isExporting ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-200"></div> : <DownloadIcon className="w-4 h-4" />}
+                        <span>SVG</span>
+                    </button>
+                </div>
+            </div>
+            <div className="flex-grow p-4 overflow-auto bg-gray-800 rounded-b-lg flex items-center justify-center">
+                <div ref={mermaidContainerRef} className="mermaid-container w-full h-full"></div>
+            </div>
+             <style>{`
+                .mermaid-container svg {
+                    max-width: 100%;
+                    height: auto;
+                }
+            `}</style>
+        </div>
+    );
+};
+
 const UIPrototypeContent: React.FC<{
     uiCode: string;
     handleExport: (targetRef: React.RefObject<HTMLDivElement>) => void;
@@ -289,11 +410,27 @@ const UIPrototypeContent: React.FC<{
 };
 
 
-const OutputPanel: React.FC<OutputPanelProps> = ({ uiCode, jiraStories, isLoading, error, activeTab, setActiveTab, onRefine, isRefining, onGenerateVariant }) => {
+const OutputPanel: React.FC<OutputPanelProps> = ({ uiCode, jiraStories, userFlow, isLoading, error, activeTab, setActiveTab, onRefine, isRefining, onGenerateVariant }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   const modalWrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    mermaid.initialize({ 
+        startOnLoad: false, 
+        theme: 'dark',
+        themeVariables: {
+            background: '#374151',
+            primaryColor: '#374151',
+            primaryTextColor: '#F9FAFB',
+            lineColor: '#9CA3AF',
+            nodeBorder: '#6B7280',
+            mainBkg: '#4B5563',
+            actorBorder: '#60A5FA',
+        }
+    });
+  }, []);
   
   const handleExport = async (targetRef: React.RefObject<HTMLDivElement>) => {
     if (!targetRef.current) {
@@ -373,6 +510,10 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ uiCode, jiraStories, isLoadin
         return jiraStories && jiraStories.length > 0 ? <StoryBoardDisplay epics={jiraStories} /> : <div className="flex items-center justify-center h-full text-gray-500"><p>No story board data available.</p></div>;
     }
 
+    if (activeTab === OutputTab.USER_FLOW) {
+        return userFlow ? <UserFlowDisplay mermaidCode={userFlow} /> : <div className="flex items-center justify-center h-full text-gray-500"><p>No user flow diagram generated.</p></div>;
+    }
+
     return null;
   };
 
@@ -391,6 +532,10 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ uiCode, jiraStories, isLoadin
           <TabButton isActive={activeTab === OutputTab.STORY_BOARD} onClick={() => setActiveTab(OutputTab.STORY_BOARD)}>
             <BoardIcon className="w-5 h-5" />
             Story Board
+          </TabButton>
+           <TabButton isActive={activeTab === OutputTab.USER_FLOW} onClick={() => setActiveTab(OutputTab.USER_FLOW)}>
+            <FlowIcon className="w-5 h-5" />
+            User Flow
           </TabButton>
         </div>
       </div>
